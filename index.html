@@ -4,6 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
 <title>School Clock</title>
 
 <style>
@@ -25,17 +26,18 @@ body {
 
 .container {
   width: 90%;
-  max-width: 750px;
+  max-width: 850px;
 }
 
 h1 {
-  font-size: 24px;
+  font-size: 26px;
   color: #94a3b8;
   font-weight: normal;
+  letter-spacing: 4px;
 }
 
 #clock {
-  font-size: clamp(65px, 15vw, 125px);
+  font-size: clamp(65px, 15vw, 130px);
   font-weight: bold;
   margin: 20px 0;
   font-variant-numeric: tabular-nums;
@@ -44,16 +46,17 @@ h1 {
 #date {
   font-size: 24px;
   color: #cbd5e1;
-  margin-bottom: 45px;
+  margin-bottom: 55px;
 }
 
 .countdown-label {
   font-size: 22px;
   color: #94a3b8;
+  letter-spacing: 2px;
 }
 
 #countdown {
-  font-size: 55px;
+  font-size: 65px;
   color: #60a5fa;
   margin: 15px;
   font-weight: bold;
@@ -61,12 +64,13 @@ h1 {
 }
 
 button {
-  padding: 16px 35px;
+  padding: 17px 40px;
   margin: 12px;
   border: none;
   border-radius: 10px;
   font-size: 18px;
   cursor: pointer;
+  font-weight: bold;
 }
 
 #start {
@@ -85,9 +89,10 @@ button:hover {
 
 #status {
   color: #86efac;
-  font-size: 16px;
-  margin-top: 20px;
+  font-size: 18px;
+  margin-top: 25px;
 }
+
 </style>
 </head>
 
@@ -121,12 +126,12 @@ button:hover {
 
 <script>
 
-
-let bellTimer = null;
-let countdownTimer = null;
-let audioContext = null;
+// =====================================
+// CLOCK DISPLAY
+// =====================================
 
 function updateClock() {
+
   const now = new Date();
 
   document.getElementById("clock").textContent =
@@ -141,109 +146,223 @@ function updateClock() {
       month: "long",
       year: "numeric"
     });
+
 }
+
+
+// =====================================
+// AUDIO SETUP
+// =====================================
+
+let audioContext = null;
 
 function playBell() {
-  if (!audioContext) {
-    audioContext = new (
-      window.AudioContext ||
-      window.webkitAudioContext
-    )();
-  }
 
-  if (audioContext.state === "suspended") {
-    audioContext.resume();
-  }
+  if (!audioContext) return;
 
-  const oscillator = audioContext.createOscillator();
-  const gain = audioContext.createGain();
+  const now = audioContext.currentTime;
 
-  oscillator.connect(gain);
-  gain.connect(audioContext.destination);
+  // Two pleasant bell tones
 
-  oscillator.type = "sine";
-  oscillator.frequency.setValueAtTime(
-    880, audioContext.currentTime
-  );
+  [880, 660].forEach((frequency, index) => {
 
-  gain.gain.setValueAtTime(
-    0.5, audioContext.currentTime
-  );
+    const oscillator = audioContext.createOscillator();
+    const gain = audioContext.createGain();
 
-  gain.gain.exponentialRampToValueAtTime(
-    0.001, audioContext.currentTime + 2
-  );
+    oscillator.connect(gain);
+    gain.connect(audioContext.destination);
 
-  oscillator.start();
-  oscillator.stop(audioContext.currentTime + 2);
+    oscillator.type = "sine";
+
+    const startTime = now + index * 0.45;
+
+    oscillator.frequency.setValueAtTime(
+      frequency,
+      startTime
+    );
+
+    gain.gain.setValueAtTime(0.4, startTime);
+
+    gain.gain.exponentialRampToValueAtTime(
+      0.001,
+      startTime + 1.5
+    );
+
+    oscillator.start(startTime);
+
+    oscillator.stop(startTime + 1.5);
+
+  });
+
 }
 
-function updateCountdown() {
+
+// =====================================
+// FIND THE NEXT BELL TIME
+// =====================================
+
+function getNextBellTime() {
+
   const now = new Date();
 
-  const nextBell = new Date(now);
-  nextBell.setSeconds(0, 0);
+  const next = new Date(now);
 
-  nextBell.setMinutes(
-    Math.floor(now.getMinutes() / 10) * 10 + 10
-  );
+  next.setSeconds(0, 0);
 
-  const remaining = nextBell - now;
+  const nextMinute =
+    (Math.floor(now.getMinutes() / 10) + 1) * 10;
+
+  next.setMinutes(nextMinute);
+
+  return next;
+
+}
+
+
+// =====================================
+// COUNTDOWN
+// =====================================
+
+function updateCountdown() {
+
+  const now = new Date();
+
+  const nextBell = getNextBellTime();
+
+  const remaining = nextBell.getTime() - now.getTime();
 
   const minutes = Math.floor(remaining / 60000);
-  const seconds = Math.floor((remaining % 60000) / 1000);
+
+  const seconds = Math.floor(
+    (remaining % 60000) / 1000
+  );
 
   document.getElementById("countdown").textContent =
     String(minutes).padStart(2, "0") + ":" +
     String(seconds).padStart(2, "0");
+
 }
 
-function checkBell() {
-  const now = new Date();
 
-  if (
-    now.getMinutes() % 10 === 0 &&
-    now.getSeconds() === 0
-  ) {
-    playBell();
+// =====================================
+// BELL SCHEDULING
+// =====================================
+
+let bellActive = false;
+let bellTimer = null;
+
+function scheduleNextBell() {
+
+  if (!bellActive) return;
+
+  const nextBell = getNextBellTime();
+
+  const targetTime = nextBell.getTime();
+
+  const delay = targetTime - Date.now();
+
+  bellTimer = setTimeout(() => {
+
+    if (!bellActive) return;
+
+    const actualTime = Date.now();
+
+    // Ring only if the timer fired close to
+    // the scheduled time. Do not ring late
+    // after a computer wakes from sleep.
+
+    if (actualTime - targetTime <= 3000) {
+
+      playBell();
+
+      document.getElementById("status").textContent =
+        "Bell sounded - next bell scheduled";
+
+    }
+
+    // Schedule the next 10-minute interval
+
+    scheduleNextBell();
+
+  }, delay);
+
+}
+
+
+// =====================================
+// START BELL
+// =====================================
+
+async function startBell() {
+
+  if (bellActive) return;
+
+  try {
+
+    if (!audioContext) {
+
+      audioContext = new (
+        window.AudioContext ||
+        window.webkitAudioContext
+      )();
+
+    }
+
+    await audioContext.resume();
+
+    bellActive = true;
+
+    document.getElementById("status").textContent =
+      "Bell is active";
+
+    scheduleNextBell();
+
+    updateCountdown();
+
   }
+
+  catch (error) {
+
+    document.getElementById("status").textContent =
+      "Audio error - please try again";
+
+    console.error(error);
+
+  }
+
 }
 
-function startBell() {
-  if (bellTimer) return;
 
-  audioContext = new (
-    window.AudioContext ||
-    window.webkitAudioContext
-  )();
-
-  audioContext.resume();
-
-  bellTimer = setInterval(checkBell, 200);
-
-  countdownTimer = setInterval(updateCountdown, 250);
-
-  document.getElementById("status").textContent =
-    "Bell is active";
-
-  updateCountdown();
-}
+// =====================================
+// STOP BELL
+// =====================================
 
 function stopBell() {
-  clearInterval(bellTimer);
-  clearInterval(countdownTimer);
+
+  bellActive = false;
+
+  clearTimeout(bellTimer);
 
   bellTimer = null;
-  countdownTimer = null;
-
-  document.getElementById("countdown").textContent = "10:00";
 
   document.getElementById("status").textContent =
     "Bell is stopped";
+
+  updateCountdown();
+
 }
 
+
+// =====================================
+// UPDATE DISPLAY
+// =====================================
+
 setInterval(updateClock, 250);
+
+setInterval(updateCountdown, 250);
+
 updateClock();
+
 updateCountdown();
 
 </script>
